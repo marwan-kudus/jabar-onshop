@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         status: 'PENDING', // Pastikan menggunakan enum yang benar
         total: parseFloat(total.toString()), // Pastikan total adalah angka
         paymentMethod: paymentMethod || 'credit_card',
-        paymentStatus: 'pending',
+        paymentStatus: 'PENDING',
         shippingAddress: JSON.stringify(shippingAddress),
         notes: notes || '',
         items: {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -15,6 +15,7 @@ import {
 } from '@/store/slices/cartSlice';
 import { Minus, Plus, Trash2, ShoppingBag } from 'lucide-react';
 
+// Tipe data bisa dipindahkan ke file terpisah (misal: types/index.ts)
 interface Product {
   id: string;
   name: string;
@@ -26,53 +27,62 @@ interface Product {
 }
 
 interface CartItem {
-  id: string;
+  id: string; // ID dari item di keranjang (CartItem)
   quantity: number;
   product: Product;
+}
+
+// Tipe data untuk item di Redux store
+interface ReduxCartItem {
+  id: string;
+  productId: string;
+  name: string;
+  price: number;
+  image: string;
+  quantity: number;
 }
 
 export default function CartPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const cartState = useAppSelector((state) => state.cart);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Gunakan data langsung dari Redux store sebagai satu-satunya sumber kebenaran (single source of truth)
+  const cartItems = useAppSelector((state) => state.cart.items);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-  useEffect(() => {
-    if (status === 'loading') return;
-    if (!session) {
-      router.push('/auth/signin');
-      return;
-    }
-
-    fetchCartItems();
-  }, [session, status, router]);
-
-  const fetchCartItems = async () => {
+  // Gunakan useCallback untuk memoize fungsi agar tidak dibuat ulang di setiap render
+  const fetchCartItems = useCallback(async () => {
     try {
       const response = await fetch('/api/cart');
       if (response.ok) {
         const items: CartItem[] = await response.json();
-        setCartItems(items);
-
-        // Update Redux store
-        const cartData = items.map((item) => ({
+        // Konversi data dari API ke format yang sesuai dengan Redux store
+        const cartData: ReduxCartItem[] = items.map((item) => ({
           id: item.id,
           productId: item.product.id,
           name: item.product.name,
           price: item.product.price,
-          image: item.product.image ?? '',
+          image: item.product.image ?? '/placeholder.png', // Fallback jika image null
           quantity: item.quantity,
         }));
+        // Update Redux store
         dispatch(setCart(cartData));
       }
     } catch (error) {
       console.error('Error fetching cart:', error);
     } finally {
-      setLoading(false);
+      setIsInitialLoading(false);
     }
-  };
+  }, [dispatch]); // Dependensi hanya dispatch
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+    }
+    if (status === 'authenticated') {
+      fetchCartItems();
+    }
+  }, [status, router, fetchCartItems]);
 
   const updateItemQuantity = async (productId: string, newQuantity: number) => {
     if (newQuantity <= 0) {
@@ -80,55 +90,56 @@ export default function CartPage() {
       return;
     }
 
+    // Dispatch ke Redux untuk UI update yang instan (Optimistic Update)
+    dispatch(updateQuantity({ productId, quantity: newQuantity }));
+
     try {
       const currentItem = cartItems.find(
-        (item) => item.product.id === productId
+        (item) => item.productId === productId
       );
       if (!currentItem) return;
 
-      const response = await fetch('/api/cart', {
+      // Kirim perubahan kuantitas ke API
+      await fetch('/api/cart', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId,
           quantity: newQuantity - currentItem.quantity,
         }),
       });
-
-      if (response.ok) {
-        dispatch(updateQuantity({ productId, quantity: newQuantity }));
-        fetchCartItems();
-      }
+      // Tidak perlu fetchCartItems() lagi karena Redux sudah diupdate
     } catch (error) {
       console.error('Error updating quantity:', error);
+      // Jika gagal, kembalikan state Redux ke semula atau fetch ulang
+      fetchCartItems();
     }
   };
 
   const removeItem = async (productId: string) => {
+    // Dispatch ke Redux untuk UI update yang instan
+    dispatch(removeFromCart(productId));
+
     try {
-      const response = await fetch(`/api/cart?productId=${productId}`, {
+      await fetch(`/api/cart?productId=${productId}`, {
         method: 'DELETE',
       });
-
-      if (response.ok) {
-        dispatch(removeFromCart(productId));
-        fetchCartItems();
-      }
+      // Tidak perlu fetchCartItems() lagi
     } catch (error) {
       console.error('Error removing item:', error);
+      // Jika gagal, fetch ulang untuk sinkronisasi
+      fetchCartItems();
     }
   };
 
   const calculateTotal = () => {
     return cartItems.reduce(
-      (total, item) => total + item.product.price * item.quantity,
+      (total, item) => total + item.price * item.quantity,
       0
     );
   };
 
-  if (status === 'loading' || loading) {
+  if (status === 'loading' || isInitialLoading) {
     return (
       <div className='min-h-screen flex items-center justify-center'>
         <div className='animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600'></div>
@@ -136,6 +147,7 @@ export default function CartPage() {
     );
   }
 
+  // Cek ini sudah ditangani oleh useEffect, tapi bisa jadi fallback
   if (!session) {
     return null;
   }
@@ -144,12 +156,14 @@ export default function CartPage() {
     <div className='min-h-screen bg-gray-50'>
       <Navbar />
 
-      <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'>
+      <main className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'>
         <div className='mb-8'>
-          <h1 className='text-3xl font-bold text-gray-900'>Shopping Cart</h1>
+          <h1 className='text-3xl font-bold text-gray-900'>
+            Keranjang Belanja
+          </h1>
           <p className='text-gray-600 mt-2'>
-            {cartItems.length} {cartItems.length === 1 ? 'item' : 'items'} in
-            your cart
+            {cartItems.length} {cartItems.length === 1 ? 'item' : 'items'} di
+            keranjang Anda
           </p>
         </div>
 
@@ -157,16 +171,16 @@ export default function CartPage() {
           <div className='text-center py-16'>
             <ShoppingBag className='h-24 w-24 text-gray-400 mx-auto mb-4' />
             <h2 className='text-2xl font-semibold text-gray-900 mb-2'>
-              Your cart is empty
+              Keranjang Anda kosong
             </h2>
             <p className='text-gray-600 mb-8'>
-              Start shopping to add items to your cart
+              Mulai belanja untuk menambahkan item ke keranjang Anda
             </p>
             <Link
               href='/products'
               className='bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors'
             >
-              Continue Shopping
+              Lanjutkan Belanja
             </Link>
           </div>
         ) : (
@@ -176,14 +190,14 @@ export default function CartPage() {
               <div className='bg-white rounded-lg shadow-md overflow-hidden'>
                 {cartItems.map((item) => (
                   <div
-                    key={item.id}
+                    key={item.productId} // Gunakan productId yang unik
                     className='p-6 border-b border-gray-200 last:border-b-0'
                   >
                     <div className='flex items-center space-x-4'>
                       <div className='flex-shrink-0 w-20 h-20 relative'>
                         <Image
-                          src={item.product.image || '/placeholder.png'}
-                          alt={item.product.name}
+                          src={item.image || '/placeholder.png'}
+                          alt={item.name}
                           fill
                           className='object-cover rounded-md'
                           sizes='80px'
@@ -192,13 +206,12 @@ export default function CartPage() {
 
                       <div className='flex-1 min-w-0'>
                         <h3 className='text-lg font-semibold text-gray-900 truncate'>
-                          {item.product.name}
+                          {item.name}
                         </h3>
-                        <p className='text-sm text-gray-600'>
-                          {item.product.category.name}
-                        </p>
+                        {/* Kategori bisa ditambahkan jika ada di Redux state */}
+                        {/* <p className='text-sm text-gray-600'>Category</p> */}
                         <p className='text-lg font-bold text-indigo-600 mt-1'>
-                          ${item.product.price.toFixed(2)}
+                          ${item.price.toFixed(2)}
                         </p>
                       </div>
 
@@ -207,7 +220,7 @@ export default function CartPage() {
                           <button
                             onClick={() =>
                               updateItemQuantity(
-                                item.product.id,
+                                item.productId,
                                 item.quantity - 1
                               )
                             }
@@ -222,7 +235,7 @@ export default function CartPage() {
                           <button
                             onClick={() =>
                               updateItemQuantity(
-                                item.product.id,
+                                item.productId,
                                 item.quantity + 1
                               )
                             }
@@ -234,7 +247,7 @@ export default function CartPage() {
                         </div>
 
                         <button
-                          onClick={() => removeItem(item.product.id)}
+                          onClick={() => removeItem(item.productId)}
                           className='p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors'
                           aria-label='Remove item'
                         >
@@ -251,9 +264,8 @@ export default function CartPage() {
             <div className='lg:col-span-1'>
               <div className='bg-white rounded-lg shadow-md p-6 sticky top-8'>
                 <h2 className='text-xl font-semibold text-gray-900 mb-4'>
-                  Order Summary
+                  Ringkasan Pesanan
                 </h2>
-
                 <div className='space-y-3 mb-6'>
                   <div className='flex justify-between'>
                     <span className='text-gray-600'>Subtotal</span>
@@ -262,11 +274,11 @@ export default function CartPage() {
                     </span>
                   </div>
                   <div className='flex justify-between'>
-                    <span className='text-gray-600'>Shipping</span>
-                    <span className='font-medium'>Free</span>
+                    <span className='text-gray-600'>Pengiriman</span>
+                    <span className='font-medium'>Gratis</span>
                   </div>
                   <div className='flex justify-between'>
-                    <span className='text-gray-600'>Tax</span>
+                    <span className='text-gray-600'>Pajak (8%)</span>
                     <span className='font-medium'>
                       ${(calculateTotal() * 0.08).toFixed(2)}
                     </span>
@@ -285,20 +297,19 @@ export default function CartPage() {
                   href='/checkout'
                   className='w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-indigo-700 transition-colors text-center block'
                 >
-                  Proceed to Checkout
+                  Lanjutkan ke Checkout
                 </Link>
-
                 <Link
                   href='/products'
                   className='w-full mt-3 border border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 transition-colors text-center block'
                 >
-                  Continue Shopping
+                  Lanjutkan Belanja
                 </Link>
               </div>
             </div>
           </div>
         )}
-      </div>
+      </main>
 
       <Footer />
     </div>

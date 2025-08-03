@@ -9,14 +9,14 @@ export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -52,8 +52,9 @@ export default function SignUp() {
       } else {
         setError(data.error || 'An error occurred');
       }
-    } catch (error) {
+    } catch (err) {
       setError('An error occurred. Please try again.');
+      console.error(err); // Log the error for debugging
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -46,10 +46,11 @@ export default function CheckoutPage() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+
   const [formData, setFormData] = useState<FormData>({
     firstName: '',
     lastName: '',
-    email: session?.user?.email || '',
+    email: '',
     phone: '',
     address: '',
     city: '',
@@ -63,28 +64,37 @@ export default function CheckoutPage() {
     notes: '',
   });
 
-  useEffect(() => {
-    if (status === 'loading') return;
-    if (!session) {
-      router.push('/auth/signin?callbackUrl=/checkout');
-      return;
-    }
-    fetchCartItems();
-  }, [session, status, router]);
-
-  const fetchCartItems = async () => {
+  const fetchCartItems = useCallback(async () => {
+    if (!session) return;
     try {
       const res = await fetch('/api/cart');
       if (!res.ok) throw new Error('Failed to fetch cart');
       const items: CartItem[] = await res.json();
       setCartItems(items);
-      if (items.length === 0) router.push('/cart');
+      if (items.length === 0) {
+        router.push('/cart');
+      }
     } catch (error) {
       console.error('Error fetching cart:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [session, router]);
+
+  useEffect(() => {
+    if (status === 'loading') return;
+
+    if (!session) {
+      router.push('/auth/signin?callbackUrl=/checkout');
+      return;
+    }
+
+    if (session?.user?.email) {
+      setFormData((prev) => ({ ...prev, email: session.user.email as string }));
+    }
+
+    fetchCartItems();
+  }, [session, status, router, fetchCartItems]);
 
   const subtotal = cartItems.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
@@ -104,15 +114,17 @@ export default function CheckoutPage() {
 
   const handlePaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    const formattedValue =
-      name === 'cardNumber'
-        ? value
-            .replace(/\s?/g, '')
-            .replace(/(\d{4})/g, '$1 ')
-            .trim()
-        : name === 'expiryDate'
-        ? value.replace(/^(\d{2})(\d)/, '$1/$2')
-        : value;
+    let formattedValue = value;
+
+    if (name === 'cardNumber') {
+      formattedValue = value
+        .replace(/\s?/g, '')
+        .replace(/(\d{4})/g, '$1 ')
+        .trim();
+    } else if (name === 'expiryDate') {
+      formattedValue = value.replace(/^(\d{2})(\d)/, '$1/$2');
+    }
+
     setFormData((prev) => ({ ...prev, [name]: formattedValue }));
   };
 
@@ -131,12 +143,10 @@ export default function CheckoutPage() {
             price: item.product.price,
           })),
           shippingAddress: {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            address: formData.address,
+            street: formData.address,
             city: formData.city,
             state: formData.state,
-            zipCode: formData.zipCode,
+            postalCode: formData.zipCode,
             country: formData.country,
           },
           paymentMethod: 'credit_card',
@@ -145,14 +155,22 @@ export default function CheckoutPage() {
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to create order');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to create order');
+      }
 
       const order = await res.json();
       dispatch(clearCart());
       router.push(`/orders/${order.id}?success=true`);
     } catch (error) {
       console.error('Error:', error);
-      alert('Error processing order. Please try again.');
+      // Perbaikan: Pengecekan tipe error yang aman
+      if (error instanceof Error) {
+        alert(`Error processing order: ${error.message}`);
+      } else {
+        alert('Error processing order. Please try again.');
+      }
     } finally {
       setProcessing(false);
     }
@@ -190,7 +208,6 @@ export default function CheckoutPage() {
   return (
     <div className='min-h-screen bg-gray-50'>
       <Navbar />
-
       <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'>
         <div className='mb-8'>
           <h1 className='text-3xl font-bold text-gray-900'>Checkout</h1>
@@ -209,32 +226,57 @@ export default function CheckoutPage() {
                   Shipping Information
                 </h2>
               </div>
-
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                {['firstName', 'lastName', 'email', 'phone'].map((field) => (
-                  <div key={field}>
-                    <label className='block text-sm font-medium text-gray-700 mb-1'>
-                      {field === 'phone'
-                        ? 'Phone'
-                        : `${field.split(/(?=[A-Z])/).join(' ')} *`}
-                    </label>
+                <div className='md:col-span-2'>
+                  <label className='block text-sm font-medium text-gray-700 mb-1'>
+                    Full Name *
+                  </label>
+                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                     <input
-                      type={
-                        field === 'email'
-                          ? 'email'
-                          : field === 'phone'
-                          ? 'tel'
-                          : 'text'
-                      }
-                      name={field}
-                      value={formData[field as keyof FormData]}
+                      type='text'
+                      name='firstName'
+                      value={formData.firstName}
                       onChange={handleChange}
-                      required={field !== 'phone'}
+                      placeholder='First Name'
+                      required
+                      className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                    />
+                    <input
+                      type='text'
+                      name='lastName'
+                      value={formData.lastName}
+                      onChange={handleChange}
+                      placeholder='Last Name'
+                      required
                       className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                     />
                   </div>
-                ))}
-
+                </div>
+                <div className='md:col-span-2'>
+                  <label className='block text-sm font-medium text-gray-700 mb-1'>
+                    Email Address *
+                  </label>
+                  <input
+                    type='email'
+                    name='email'
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                  />
+                </div>
+                <div className='md:col-span-2'>
+                  <label className='block text-sm font-medium text-gray-700 mb-1'>
+                    Phone
+                  </label>
+                  <input
+                    type='tel'
+                    name='phone'
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                  />
+                </div>
                 <div className='md:col-span-2'>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
                     Address *
@@ -248,24 +290,48 @@ export default function CheckoutPage() {
                     className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                   />
                 </div>
-
-                {['city', 'state', 'zipCode'].map((field) => (
-                  <div key={field}>
+                <div className='grid grid-cols-1 md:grid-cols-3 gap-4 md:col-span-2'>
+                  <div>
                     <label className='block text-sm font-medium text-gray-700 mb-1'>
-                      {field.split(/(?=[A-Z])/).join(' ')} *
+                      City *
                     </label>
                     <input
                       type='text'
-                      name={field}
-                      value={formData[field as keyof FormData]}
+                      name='city'
+                      value={formData.city}
                       onChange={handleChange}
                       required
                       className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                     />
                   </div>
-                ))}
-
-                <div>
+                  <div>
+                    <label className='block text-sm font-medium text-gray-700 mb-1'>
+                      State *
+                    </label>
+                    <input
+                      type='text'
+                      name='state'
+                      value={formData.state}
+                      onChange={handleChange}
+                      required
+                      className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                    />
+                  </div>
+                  <div>
+                    <label className='block text-sm font-medium text-gray-700 mb-1'>
+                      Zip Code *
+                    </label>
+                    <input
+                      type='text'
+                      name='zipCode'
+                      value={formData.zipCode}
+                      onChange={handleChange}
+                      required
+                      className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                    />
+                  </div>
+                </div>
+                <div className='md:col-span-2'>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
                     Country *
                   </label>
@@ -295,7 +361,6 @@ export default function CheckoutPage() {
                   Payment Information
                 </h2>
               </div>
-
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                 <div className='md:col-span-2'>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
@@ -312,7 +377,6 @@ export default function CheckoutPage() {
                     className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                   />
                 </div>
-
                 <div>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
                     Expiry Date *
@@ -328,7 +392,6 @@ export default function CheckoutPage() {
                     className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                   />
                 </div>
-
                 <div>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
                     CVV *
@@ -344,7 +407,6 @@ export default function CheckoutPage() {
                     className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500'
                   />
                 </div>
-
                 <div className='md:col-span-2'>
                   <label className='block text-sm font-medium text-gray-700 mb-1'>
                     Cardholder Name *
@@ -381,7 +443,6 @@ export default function CheckoutPage() {
               <h2 className='text-xl font-semibold text-gray-900 mb-4'>
                 Order Summary
               </h2>
-
               <div className='space-y-4 mb-6 max-h-96 overflow-y-auto'>
                 {cartItems.map((item) => (
                   <div key={item.id} className='flex items-center space-x-3'>
@@ -408,7 +469,6 @@ export default function CheckoutPage() {
                   </div>
                 ))}
               </div>
-
               <div className='space-y-3 mb-6 border-t border-gray-200 pt-4'>
                 <div className='flex justify-between'>
                   <span className='text-gray-600'>Subtotal</span>
@@ -431,7 +491,6 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               </div>
-
               <button
                 type='submit'
                 disabled={processing}
@@ -445,7 +504,6 @@ export default function CheckoutPage() {
           </div>
         </form>
       </div>
-
       <Footer />
     </div>
   );

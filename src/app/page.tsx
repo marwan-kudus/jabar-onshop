@@ -236,7 +236,7 @@ export default function HomePage() {
               Shop by Category
             </h2>
             <p className='text-gray-600 max-w-2xl mx-auto'>
-              Browse our wide range of categories to find exactly what you're
+              Browse our wide range of categories to find exactly what you are
               looking for.
             </p>
           </div>

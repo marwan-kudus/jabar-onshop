@@ -8,14 +8,14 @@ import Link from 'next/link';
 export default function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
 
     try {
       const result = await signIn('credentials', {
@@ -34,8 +34,9 @@ export default function SignIn() {
           router.push('/dashboard');
         }
       }
-    } catch (error) {
+    } catch (err) {
       setError('An error occurred. Please try again.');
+      console.error(err); // Log the error for debugging
     } finally {
       setLoading(false);
     }

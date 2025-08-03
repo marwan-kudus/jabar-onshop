@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-interface ProductData {
+interface ProductCreateInput {
   name: string;
   description?: string;
   price: number | string;
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get('categoryId');
-    const featured = searchParams.get('featured');
+    const featuredParam = searchParams.get('featured');
 
     const where: {
       categoryId?: string;
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       where.categoryId = categoryId;
     }
 
-    if (featured === 'true') {
+    if (featuredParam === 'true') {
       where.featured = true;
     }
 
@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Menggunakan interface ProductCreateInput yang sudah didefinisikan
     const {
       name,
       description,
@@ -61,9 +62,9 @@ export async function POST(request: NextRequest) {
       stock,
       categoryId,
       featured,
-    }: ProductData = await request.json();
+    }: ProductCreateInput = await request.json();
 
-    // Validate required fields
+    // Validasi field yang wajib ada
     if (!name || !price || !categoryId) {
       return NextResponse.json(
         { error: 'Missing required fields: name, price, or categoryId' },
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert price and stock to numbers safely
+    // Mengkonversi harga dan stok ke tipe numerik dengan aman
     const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
     const numericStock = stock
       ? typeof stock === 'string'
@@ -86,22 +87,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (isNaN(numericStock)) {
+    // Hanya lakukan validasi stock jika properti stock memang ada
+    if (stock && isNaN(numericStock)) {
       return NextResponse.json(
         { error: 'Stock must be a valid number' },
         { status: 400 }
       );
     }
 
+    // Membuat produk baru dengan data yang sudah divalidasi dan diolah
     const product = await prisma.product.create({
       data: {
         name,
-        description: description || null,
+        // Menggunakan operator || untuk memberikan nilai default (string kosong)
+        // jika `description` atau `image` tidak ada atau kosong.
+        // Ini mengatasi error tipe 'string | null' is not assignable to type 'string'.
+        description: description || '',
         price: numericPrice,
-        image: image || null,
+        image: image || '',
         stock: numericStock,
         categoryId,
-        featured: featured || false,
+        // Menggunakan operator nullish coalescing `??` untuk memberikan nilai
+        // default `false` jika `featured` tidak ada.
+        featured: featured ?? false,
       },
       include: {
         category: true,

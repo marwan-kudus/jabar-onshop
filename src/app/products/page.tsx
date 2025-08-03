@@ -41,39 +41,39 @@ export default function ProductsPage() {
   const [addingToCart, setAddingToCart] = useState<string | null>(null);
 
   useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const url = selectedCategory
+          ? `/api/products?categoryId=${selectedCategory}`
+          : '/api/products';
+
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setProducts(data);
+        }
+      } catch (error) {
+        console.error('Error fetching products:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch('/api/categories');
+        if (response.ok) {
+          const data = await response.json();
+          setCategories(data);
+        }
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
+    };
+
     fetchProducts();
     fetchCategories();
   }, [selectedCategory]);
-
-  const fetchProducts = async () => {
-    try {
-      const url = selectedCategory
-        ? `/api/products?categoryId=${selectedCategory}`
-        : '/api/products';
-
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setProducts(data);
-      }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCategories = async () => {
-    try {
-      const response = await fetch('/api/categories');
-      if (response.ok) {
-        const data = await response.json();
-        setCategories(data);
-      }
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-    }
-  };
 
   const handleAddToCart = async (product: Product) => {
     if (!session) {

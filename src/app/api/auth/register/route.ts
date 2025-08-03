@@ -1,53 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { ZodError, z } from 'zod';
+
+// Tentukan skema validasi untuk data input menggunakan Zod
+const userSchema = z.object({
+  name: z.string().min(1, 'Nama harus diisi.'),
+  email: z.string().email('Format email tidak valid.'),
+  password: z
+    .string()
+    .min(6, 'Password harus minimal 6 karakter.')
+    .max(20, 'Password maksimal 20 karakter.'),
+});
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password } = await request.json();
+    const body = await request.json();
 
-    if (!name || !email || !password) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
+    // Validasi data input menggunakan Zod
+    const { name, email, password } = userSchema.parse(body);
 
-    // Check if user already exists
+    // Cek apakah user sudah ada
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
 
     if (existingUser) {
       return NextResponse.json(
-        { error: 'User already exists' },
-        { status: 400 }
+        { error: 'Email ini sudah terdaftar.' },
+        { status: 409 } // Menggunakan status 409 Conflict untuk konflik data
       );
     }
 
-    // Hash password
+    // Hash password dengan salt yang dihasilkan secara otomatis
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user
+    // Buat user baru di database
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
       },
+      // Pilih hanya kolom yang ingin dikembalikan, tanpa password
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
-
     return NextResponse.json(
-      { message: 'User created successfully', user: userWithoutPassword },
+      { message: 'Registrasi berhasil.', user },
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof ZodError) {
+      // Tangani error validasi dari Zod
+      return NextResponse.json(
+        { error: 'Data yang dikirim tidak valid.', issues: error.issues },
+        { status: 400 }
+      );
+    }
+
+    // Tangani error lain yang tidak terduga
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Terjadi kesalahan internal. Silakan coba lagi nanti.' },
       { status: 500 }
     );
   }
