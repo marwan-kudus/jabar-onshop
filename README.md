@@ -1,3 +1,6 @@
+email admin : john.doe@example.com
+password : password123
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

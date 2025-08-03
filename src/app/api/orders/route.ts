@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
     const order = await prisma.order.create({
       data: {
         userId: session.user.id,
-        status: 'PENDING', // Pastikan menggunakan enum yang benar
-        total: parseFloat(total.toString()), // Pastikan total adalah angka
+        status: 'PENDING',
+        total: parseFloat(total.toString()),
         paymentMethod: paymentMethod || 'credit_card',
         paymentStatus: 'PENDING',
         shippingAddress: JSON.stringify(shippingAddress),

@@ -211,7 +211,9 @@ export default function ProductsPage() {
                   >
                     <div className='aspect-square relative'>
                       <Image
-                        src={product.image || '/api/placeholder/300/300'}
+                        src={
+                          product.image || 'https://via.placeholder.com/400x300'
+                        }
                         alt={product.name}
                         fill
                         className='object-cover'
